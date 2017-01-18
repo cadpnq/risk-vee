@@ -1,0 +1,367 @@
+// RVeA - risk-vee-assembler
+
+// I switched to es6 about half-way through. *So much* of this code could
+// be improved with the stuff in es6. When I get around to doing that I will
+// also add error handling.
+
+const fs = require('fs');
+
+var tokenizer = new RegExp(/"(?:[^\\"]|\\.)*"|\.?-?\w+:?/g);
+
+
+// some values, when present in an instruction, are always in the same place
+//                  name, width, start
+var inst_fields = [["opcode", 7, 0],
+                   ["rsd", 5, 7],
+                   ["rs1", 5, 15],
+                   ["rs2", 5, 20],
+                   ["func3", 3, 12],
+                   ["func7", 7, 25]];
+
+
+// immediate start, instruction start, width
+var immediate_fields = {I: [[0, 20, 12]],
+                        S: [[0, 7, 5],
+                            [5, 25, 7]],
+                        B: [[11, 7, 1],
+                            [1, 8, 4],
+                            [5, 25, 6],
+                            [12, 31, 1]],
+                        U: [[12, 12, 20]],
+                        J: [[12, 12, 8],
+                            [11, 20, 1],
+                            [1, 21, 10],
+                            [20, 31, 1]]};
+
+
+function default_constants() {
+  return combine_objects(register_names("r", 0, 0, 32),
+                         register_names("t", 0, 5, 3),
+                         register_names("s", 0, 8, 2),
+                         register_names("a", 0, 10, 8),
+                         register_names("s", 2, 18, 10),
+                         register_names("t", 3, 28, 4),
+                         {zero: 0,
+                          ra: 1,
+                          sp: 2,
+                          gp: 3,
+                          tp: 4,
+                          fp: 8});
+}
+
+function register_names(character, start, reg_start, number) {
+  ret = {};
+  for(var i = 0; i < number; i++) {
+    ret[`${character}${start + i}`] = reg_start + i;
+  }
+  return ret;
+}
+
+function number_to_array(val, width = 4) {
+  var ret = [];
+  for(var i = 0; i < width; i++) {
+  
+    // this needs pulled apart for readability
+    ret.push (((((0xFF << i*8) & val) >> i*8) >>> 0) & 0xFF);
+  }
+  return ret;
+}
+
+function combine_objects() {
+  var out = {};
+  for(i in arguments) {
+    for(key in arguments[i]) {
+      out[key] = arguments[i][key];
+    }
+  }
+  return out;
+}
+
+
+function assemble_instruction(args, immediate, immediate_type) {
+  var ret;
+
+  for(i in inst_fields) {
+    var [name, width, start] = inst_fields[i];
+    
+    if(args[name]){
+      ret |= ((Math.pow(2, width) - 1) & args[name]) << start;
+    }
+  }
+  
+  if(immediate) {
+    for(i in immediate_fields[immediate_type]) {
+      var [immediate_start, instruction_start, width] = immediate_fields[immediate_type][i];
+      
+      // this also needs to be changed for readability
+      ret |= ((((((Math.pow(2, width) - 1) << immediate_start) >>> 0) & immediate) >>> 0) 
+                >> immediate_start) << instruction_start;
+    }
+  }
+  
+  return ret;
+}
+
+function r_type(opcode, func3, func7) {
+  return function(rsd, rs1, rs2) {
+    return assemble_instruction({opcode, rsd, rs1, rs2, func3, func7});
+  }
+}
+
+function i_type(opcode, func3) {
+  return function(rsd, rs1, imm) {
+    return assemble_instruction({opcode, rsd, rs1, func3}, imm, "I");
+  }
+}
+
+function s_type(opcode, func3) {
+  return function(rs1, rs2, imm) {
+    return assemble_instruction({opcode, rs1, rs2, func3}, imm, "S");
+  }
+}
+
+function b_type(opcode, func3) {
+  return function(rs1, rs2, imm) {
+    return assemble_instruction({opcode, rs1, rs2, func3}, imm, "B");
+  }
+}
+
+function u_type(opcode) {
+  return function(rsd, imm) {
+    return assemble_instruction({opcode, rsd}, imm, "U");
+  }
+}
+
+function j_type(opcode) {
+  return function(rsd, imm) {
+    return assemble_instruction({opcode, rsd}, imm, "J");
+  }
+}
+
+class AssemblerObject {
+  constructor(location) {
+    this.location = location;
+    this.arguments = [];
+  }
+  
+  read_arguments(tokens) {
+    for(var i = 0; i < this.arity(); i++) {
+      this.arguments.push(tokens.shift());
+    }
+  }
+  
+  process_arguments() {
+    for(var i in this.arguments) {
+      var arg = this.arguments[i];
+      if(constants[arg] != null) {
+        this.arguments[i] = constants[arg];
+      } else if (!isNaN(parseInt(arg))) {
+        this.arguments[i] = parseInt(arg)
+      } else if (labels[arg]) {
+        this.arguments[i] = labels[arg] - this.location;
+      } else {
+        this.arguments[i] = eval(arg);
+      }
+    }
+  }
+  
+  assemble_function() {
+  }
+  
+  assemble() {
+    return number_to_array(this.assemble_function(...this.arguments));
+  }
+  
+  write_bytes(out) {
+    var bytes = this.assemble();
+    for(var i = 0; i < bytes.length; i++) {
+      out[this.location + i] = bytes[i];
+    }
+  }
+  
+  arity() {
+    return 0;
+  }
+  
+  length() {
+    return 0;
+  }
+}
+
+function Instruction(assemble_function) {
+  return class extends AssemblerObject {
+    constructor(location) {
+      super(location);
+      this.assemble_function = assemble_function;
+    }
+    
+    arity() {
+      return this.assemble_function.length;
+    }
+    
+    length() {
+      return 4;
+    }
+  }
+}
+
+function PseudoInstruction(arity, expansion) {
+  return class extends AssemblerObject {
+    read_arguments(tokens) {
+      var args = [];
+      for(var i = 0; i < arity; i++) {
+        args.push(tokens.shift());
+      }
+      for(var i = expansion.length - 1; i >= 0; i--) {
+        if(args[expansion[i]] == null) {
+          tokens.unshift(expansion[i]);
+        } else {
+          tokens.unshift(args[expansion[i]]);
+        }
+      }
+    }
+    write_bytes() {}
+  }
+}
+
+// name, arity, expansion
+var pseudoinstruction_table = 
+ [["la", 2,  ["auipc", 0, 1, "addi", 0, 0, 1]],
+  ["lgb", 2, ["auipc", 0, 1, "lb", 0, 1]],
+  ["lgh", 2, ["auipc", 0, 1, "lh", 0, 1]],
+  ["lgw", 2, ["auipc", 0, 1, "lw", 0, 1]],
+  ["sgb", 3, ["auipc", 2, 1, "sb", 0, 2, 1]],
+  ["sgh", 3, ["auipc", 2, 1, "sh", 0, 2, 1]],
+  ["sgw", 3, ["auipc", 2, 1, "sw", 0, 2, 1]],
+  ["nop", 0, ["addi", "r0", "r0", "0"]],
+  ["li", 2,  ["lui", 0, 1, "addi", 0, 0, 1]],
+  ["mv", 2,  ["addi", 0, 1, "0"]],
+  ["not", 2, ["xori", 0, 1, "-1"]],
+  ["neg", 2, ["sub", 0, "r0", 1]],
+  ["seqz", 2, ["sltiu", 0, 1, "1"]],
+  ["snez", 2, ["sltu", 0, "r0", 1]],
+  ["sltz", 2, ["sltz", 0, 1, "r0"]],
+  ["beqz", 2, ["beq", 0, "r0", 1]],
+  ["bnez", 2, ["bne",0, "r0", 1]],
+  ["blez", 2, ["bge", "r0", 0, 1]],
+  ["bgez", 2, ["bge", 0, "r0", 1]],
+  ["bltz", 2, ["blt", 0, "r0", 1]],
+  ["bgtz", 2, ["blt", "r0", 0, 1]],
+  ["j", 1, ["jal", "r0", 0]],
+  ["jr", 1, ["jalr", "r0", 0, "0"]],
+  ["ret", 0, ["jalr", "r0", "r1", "0"]],
+  ["call", 1, ["auipc", "r6", 0, "jalr", "r1", "r6", 0]]
+];
+
+// name, assemble function
+var instruction_table = 
+[["lui", u_type(55)],
+ ["auipc", u_type(23)],
+ ["jal", j_type(111)],
+ ["jalr", i_type(103, 0)],
+ ["beq", b_type(99, 0)],
+ ["bne", b_type(99, 1)],
+ ["blt", b_type(99, 4)],
+ ["bge", b_type(99, 5)],
+ ["bltu", b_type(99, 6)],
+ ["bgeu", b_type(99, 7)],
+ ["lb", i_type(3, 0)],
+ ["lh", i_type(3, 1)],
+ ["lw", i_type(3, 2)],
+ ["lbu", i_type(3, 4)],
+ ["lhu", i_type(3, 5)],
+ ["sb", s_type(35, 0)],
+ ["sh", s_type(35, 1)],
+ ["sw", s_type(35, 2)],
+ ["addi", i_type(19, 0)],
+ ["slti", i_type(19, 2)],
+ ["sltiu", i_type(19, 3)],
+ ["xori", i_type(19, 4)],
+ ["ori", i_type(19, 6)],
+ ["andi", i_type(19, 7)],
+// Note that the shift immediate instructions are actually encoded as a special
+// I-type instruction where the bottom 5 bits of the immediate are the shift 
+// amount and the rest describe the type of shift operation. This lines up with
+// an R-type instruction so, for simplicity, I defined them as such.
+ ["slli", r_type(19, 1, 0)],
+ ["srli", r_type(19, 5, 0)],
+ ["srai", r_type(19, 5, 32)],
+ ["add", r_type(51, 0, 0)],
+ ["sub", r_type(51, 0, 32)],
+ ["sll", r_type(51, 1, 0)],
+ ["slt", r_type(51, 2, 0)],
+ ["sltu", r_type(51, 3, 0)],
+ ["xor", r_type(51, 4, 0)],
+ ["srl", r_type(51, 5, 0)],
+ ["sra", r_type(51, 5, 32)],
+ ["or", r_type(51, 6, 0)],
+ ["and", r_type(51, 7, 0)]];
+
+var directive_table = 
+[];
+
+function make_pseudoinstructions(l) {
+  var out = {};
+  for(i in l) {
+    var [name, arity, expansion] = l[i];
+    out[name] = PseudoInstruction(arity, expansion);
+  }
+  return out;
+}
+
+function make_instructions(l) {
+  var out = {};
+  for(var i in l) {
+    var [name, assemble_function] = l[i];
+    out[name] = Instruction(assemble_function);
+  }
+  return out;
+}
+
+function make_directives(l) {
+}
+
+var constants = default_constants();
+var labels = {};
+
+var operations = combine_objects(make_pseudoinstructions(pseudoinstruction_table),
+                                 make_instructions(instruction_table),
+                                 make_directives(directive_table));
+
+var output_objects = [];
+var output_bytes = [];
+
+console.log("v2.0 raw");
+
+var tokens = fs.readFileSync(process.argv[2], "utf-8").match(tokenizer);
+
+var labels = {};
+
+var memory_address = 0;
+
+while(tokens.length) {
+  var token = tokens.shift();
+  if(/\w*:/.test(token)) {
+    labels[token.replace(":", "")] = memory_address;
+  } else {
+    console.log("#" + token);
+    var op = new operations[token.toLowerCase()](memory_address);
+    op.read_arguments(tokens);
+    memory_address += op.length();
+    output_objects.push(op);
+  }
+}
+
+for(var i in output_objects) {
+  output_objects[i].process_arguments();
+  console.log("#" + output_objects[i].arguments);
+  output_objects[i].write_bytes(output_bytes);
+}
+
+for(var i = 0; i < output_bytes.length; i++) {
+  if(output_bytes[i]) {
+    console.log(output_bytes[i].toString(16));
+  } else {
+    console.log("00");
+  }
+}
