@@ -139,12 +139,14 @@ function j_type(opcode) {
 }
 
 class AssemblerObject {
-  constructor(location) {
+  constructor(location, length, save = true) {
     this.location = location;
+    this.save = save;
+    this._length = length;
     this.arguments = [];
   }
-  
-  read_arguments(tokens) {
+
+  get_arguments(tokens) {
     for(var i = 0; i < this.arity(); i++) {
       this.arguments.push(tokens.shift());
     }
@@ -154,73 +156,84 @@ class AssemblerObject {
     for(var i in this.arguments) {
       var arg = this.arguments[i];
       if(constants[arg] != null) {
-        this.arguments[i] = constants[arg];
+        arg = constants[arg];
       } else if (!isNaN(parseInt(arg))) {
-        this.arguments[i] = parseInt(arg)
-      } else if (labels[arg]) {
-        this.arguments[i] = labels[arg] - this.location;
+        arg = parseInt(arg)
+      } else if (labels[arg] != undefined) {
+        arg = labels[arg] - this.location;
       } else {
-        this.arguments[i] = eval(arg);
+        arg = eval(arg);
       }
+      this.arguments[i] = arg;
     }
   }
   
-  assemble_function() {
+  get_bytes() {
   }
-  
-  assemble() {
-    return number_to_array(this.assemble_function(...this.arguments));
-  }
-  
-  write_bytes(out) {
-    var bytes = this.assemble();
-    for(var i = 0; i < bytes.length; i++) {
-      out[this.location + i] = bytes[i];
-    }
+
+  length() {
+    return this._length;
   }
   
   arity() {
     return 0;
   }
-  
-  length() {
-    return 0;
-  }
 }
 
-function Instruction(assemble_function) {
+function Instruction(encode_function) {
   return class extends AssemblerObject {
     constructor(location) {
-      super(location);
-      this.assemble_function = assemble_function;
+      super(location, 4);
+    }
+    
+    get_bytes() {
+      return number_to_array(encode_function(...this.arguments));
     }
     
     arity() {
-      return this.assemble_function.length;
+      return encode_function.length;
     }
-    
-    length() {
-      return 4;
-    }
+  }
+}
+
+class ByteDirective extends AssemblerObject {
+  constructor(location) {
+    super(location, 1);
+  }
+  
+  get_bytes() {
+    this.process_arguments();
+    return [this.arguments[0] & 0xFF];
+  }
+
+  arity() {
+    return 1;
+  }
+}
+
+class EphemeralObject extends AssemblerObject{
+  constructor(location) {
+    super(location, 0, false);
   }
 }
 
 function PseudoInstruction(arity, expansion) {
-  return class extends AssemblerObject {
-    read_arguments(tokens) {
-      var args = [];
-      for(var i = 0; i < arity; i++) {
-        args.push(tokens.shift());
-      }
+  return class extends EphemeralObject {
+    get_arguments(tokens) {
+      super.get_arguments(tokens);
+      // push our expansion onto the token stream
       for(var i = expansion.length - 1; i >= 0; i--) {
-        if(args[expansion[i]] == null) {
+        if(this.arguments[expansion[i]] == null) {
           tokens.unshift(expansion[i]);
         } else {
-          tokens.unshift(args[expansion[i]]);
+          tokens.unshift(this.arguments[expansion[i]]);
         }
       }
     }
-    write_bytes() {}
+    
+    arity() {
+      return arity;
+    }
   }
 }
 
@@ -319,6 +332,7 @@ function make_instructions(l) {
 }
 
 function make_directives(l) {
+  return {".byte": ByteDirective};
 }
 
 var constants = default_constants();
@@ -346,16 +360,23 @@ while(tokens.length) {
   } else {
     console.log("#" + token);
     var op = new operations[token.toLowerCase()](memory_address);
-    op.read_arguments(tokens);
+    op.get_arguments(tokens);
     memory_address += op.length();
-    output_objects.push(op);
+    if(op.save) {
+      output_objects.push(op);
+    }
   }
 }
 
 for(var i in output_objects) {
-  output_objects[i].process_arguments();
-  console.log("#" + output_objects[i].arguments);
-  output_objects[i].write_bytes(output_bytes);
+  var obj = output_objects[i];
+  obj.process_arguments();
+  console.log("#" + obj.arguments);
+  
+  var bytes = obj.get_bytes()
+  for(var i = 0; i < bytes.length; i++) {
+    output_bytes[obj.location + i] = bytes[i];
+  }
 }
 
 for(var i = 0; i < output_bytes.length; i++) {
