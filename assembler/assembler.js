@@ -6,7 +6,7 @@
 
 const fs = require('fs');
 
-var tokenizer = new RegExp(/"(?:[^\\"]|\\.)*"|\.?-?\w+:?/g);
+var tokenizer = new RegExp(/"(?:[^\\"]|\\.)*"|\.?'?-?\w+:?/g);
 
 
 // some values, when present in an instruction, are always in the same place
@@ -153,14 +153,28 @@ class AssemblerObject {
   }
   
   process_arguments() {
+    //console.log(this.arguments);
     for(var i in this.arguments) {
       var arg = this.arguments[i];
       if(constants[arg] != null) {
         arg = constants[arg];
       } else if (!isNaN(parseInt(arg))) {
         arg = parseInt(arg)
-      } else if (labels[arg] != undefined) {
-        arg = labels[arg] - this.location;
+        
+      // in some instances we want the address of a label and in others
+      // we want the offset from the current address to it. this could be
+      // handled better, but for now all labels referenced with a ' before
+      // the name are treated as the address and all bare labels are the
+      // offset.
+      // additionally, multi-byte pseudoinstruction expansions that 
+      // contain labels treated as offsets need attention. this is not
+      // currently implemented.
+      } else if (labels[arg.replace("'","")] != undefined) {
+        if (arg.charAt(0) == "'") {
+          arg = labels[arg.replace("'","")];
+        } else {
+          arg = labels[arg] - this.location;
+        }
       } else {
         arg = eval(arg);
       }
@@ -237,6 +251,44 @@ function PseudoInstruction(arity, expansion) {
   }
 }
 
+function PseudoDirective(arity, expansion_function) {
+  return class extends EphemeralObject {
+    get_arguments(tokens) {
+      super.get_arguments(tokens);
+      this.process_arguments();
+      var expansion = expansion_function(this.arguments);
+      for(var i = expansion.length - 1; i >= 0; i--) {
+        tokens.unshift(expansion[i]);
+      }
+    }
+    
+    arity() {
+      return arity;
+    }
+  }
+}
+
+function half_directive(args) {
+  var a = args[0];
+  return [".byte", a & 0xff,
+          ".byte", (a >> 8) & 0xff];
+}
+
+function word_directive(args) {
+  var a = args[0];
+  return [".half", a & 0xffff,
+          ".half", (a >> 16) & 0xffff];
+}
+
+// clean up later
+function stringu_directive(args) {
+  return args[0].split('').map(x=>".byte " + x.charCodeAt(0)).join(" ").split(" ");
+}
+
+function string_directive(args) {
+  return [".stringu", '"' + args[0] + '"', ".byte", "0"];
+}
+
 // name, arity, expansion
 var pseudoinstruction_table = 
  [["la", 2,  ["auipc", 0, 1, "addi", 0, 0, 1]],
@@ -310,8 +362,12 @@ var instruction_table =
  ["or", r_type(51, 6, 0)],
  ["and", r_type(51, 7, 0)]];
 
+// name, arity, expansion_function
 var directive_table = 
-[];
+[[".half", 1, half_directive],
+ [".word", 1, word_directive],
+ [".stringu", 1, stringu_directive],
+ [".string", 1, string_directive]];
 
 function make_pseudoinstructions(l) {
   var out = {};
@@ -332,7 +388,12 @@ function make_instructions(l) {
 }
 
 function make_directives(l) {
-  return {".byte": ByteDirective};
+  var out = {".byte": ByteDirective};
+  for(var i in l) {
+    var [name, arity, expansion_function] = l[i];
+    out[name] = PseudoDirective(arity, expansion_function);
+  }
+  return out;
 }
 
 var constants = default_constants();
