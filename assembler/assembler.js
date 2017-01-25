@@ -6,7 +6,7 @@
 
 const fs = require('fs');
 
-var tokenizer = new RegExp(/"(?:[^\\"]|\\.)*"|\.?'?-?\w+:?/g);
+var tokenizer = new RegExp(/;.*\n|"(?:[^\\"]|\\.)*"|[\.'-]?\w+:?/g);
 
 
 // some values, when present in an instruction, are always in the same place
@@ -150,6 +150,7 @@ class AssemblerObject {
     for(var i = 0; i < this.arity(); i++) {
       this.arguments.push(tokens.shift());
     }
+    console.log("# " + this.arguments.join(", "));
   }
   
   process_arguments() {
@@ -183,6 +184,7 @@ class AssemblerObject {
   }
   
   get_bytes() {
+    return [];
   }
 
   length() {
@@ -225,6 +227,22 @@ class ByteDirective extends AssemblerObject {
   }
 }
 
+class ConstantDirective extends AssemblerObject {
+  constructor(location) {
+    super(location, 0);
+  }
+  
+  process_arguments() {
+    var name = this.arguments.shift();
+    super.process_arguments();
+    constants[name] = this.arguments[0];
+  }
+
+  arity() {
+    return 2;
+  }
+}
+
 class EphemeralObject extends AssemblerObject{
   constructor(location) {
     super(location, 0, false);
@@ -235,9 +253,10 @@ function PseudoInstruction(arity, expansion) {
   return class extends EphemeralObject {
     get_arguments(tokens) {
       super.get_arguments(tokens);
+      console.log("#^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^");
       // push our expansion onto the token stream
       for(var i = expansion.length - 1; i >= 0; i--) {
-        if(this.arguments[expansion[i]] == null) {
+        if(typeof(expansion[i]) == "string") {
           tokens.unshift(expansion[i]);
         } else {
           tokens.unshift(this.arguments[expansion[i]]);
@@ -291,15 +310,15 @@ function string_directive(args) {
 
 // name, arity, expansion
 var pseudoinstruction_table = 
- [["la", 2,  ["auipc", 0, 1, "addi", 0, 0, 1]],
-  ["lgb", 2, ["auipc", 0, 1, "lb", 0, 1]],
-  ["lgh", 2, ["auipc", 0, 1, "lh", 0, 1]],
-  ["lgw", 2, ["auipc", 0, 1, "lw", 0, 1]],
-  ["sgb", 3, ["auipc", 2, 1, "sb", 0, 2, 1]],
-  ["sgh", 3, ["auipc", 2, 1, "sh", 0, 2, 1]],
-  ["sgw", 3, ["auipc", 2, 1, "sw", 0, 2, 1]],
+ [[//"la", 2,  ["auipc", 0, 1, "addi", 0, 0, 1]],
+//  ["lgb", 2, ["auipc", 0, 1, "lb", 0, 1]],
+//  ["lgh", 2, ["auipc", 0, 1, "lh", 0, 1]],
+//  ["lgw", 2, ["auipc", 0, 1, "lw", 0, 1]],
+//  ["sgb", 3, ["auipc", 2, 1, "sb", 0, 2, 1]],
+//  ["sgh", 3, ["auipc", 2, 1, "sh", 0, 2, 1]],
+//  ["sgw", 3, ["auipc", 2, 1, "sw", 0, 2, 1]],
   ["nop", 0, ["addi", "r0", "r0", "0"]],
-  ["li", 2,  ["lui", 0, 1, "addi", 0, 0, 1]],
+  ["li", 2,  ["lui", 0, 1, "ori", 0, 0, 1]],
   ["mv", 2,  ["addi", 0, 1, "0"]],
   ["not", 2, ["xori", 0, 1, "-1"]],
   ["neg", 2, ["sub", 0, "r0", 1]],
@@ -315,7 +334,7 @@ var pseudoinstruction_table =
   ["j", 1, ["jal", "r0", 0]],
   ["jr", 1, ["jalr", "r0", 0, "0"]],
   ["ret", 0, ["jalr", "r0", "r1", "0"]],
-  ["call", 1, ["auipc", "r6", 0, "jalr", "r1", "r6", 0]]
+//  ["call", 1, ["auipc", "r6", 0, "jalr", "r1", "r6", 0]]
 ];
 
 // name, assemble function
@@ -388,7 +407,8 @@ function make_instructions(l) {
 }
 
 function make_directives(l) {
-  var out = {".byte": ByteDirective};
+  var out = {".byte": ByteDirective,
+             ".constant": ConstantDirective};
   for(var i in l) {
     var [name, arity, expansion_function] = l[i];
     out[name] = PseudoDirective(arity, expansion_function);
@@ -416,7 +436,9 @@ var memory_address = 0;
 
 while(tokens.length) {
   var token = tokens.shift();
+  if(token.charAt(0) == ";") continue;
   if(/\w*:/.test(token)) {
+    console.log("######### " + token);
     labels[token.replace(":", "")] = memory_address;
   } else {
     console.log("#" + token);
@@ -432,7 +454,7 @@ while(tokens.length) {
 for(var i in output_objects) {
   var obj = output_objects[i];
   obj.process_arguments();
-  console.log("#" + obj.arguments);
+  console.log("# " + obj.arguments);
   
   var bytes = obj.get_bytes()
   for(var i = 0; i < bytes.length; i++) {
@@ -447,3 +469,4 @@ for(var i = 0; i < output_bytes.length; i++) {
     console.log("00");
   }
 }
+//console.log(labels);
