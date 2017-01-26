@@ -310,7 +310,7 @@ function string_directive(args) {
 
 // name, arity, expansion
 var pseudoinstruction_table = 
- [[//"la", 2,  ["auipc", 0, 1, "addi", 0, 0, 1]],
+ [//["la", 2,  ["auipc", 0, 1, "addi", 0, 0, 1]],
 //  ["lgb", 2, ["auipc", 0, 1, "lb", 0, 1]],
 //  ["lgh", 2, ["auipc", 0, 1, "lh", 0, 1]],
 //  ["lgw", 2, ["auipc", 0, 1, "lw", 0, 1]],
@@ -324,16 +324,17 @@ var pseudoinstruction_table =
   ["neg", 2, ["sub", 0, "r0", 1]],
   ["seqz", 2, ["sltiu", 0, 1, "1"]],
   ["snez", 2, ["sltu", 0, "r0", 1]],
-  ["sltz", 2, ["sltz", 0, 1, "r0"]],
+  ["sltz", 2, ["slt", 0, 1, "r0"]],
+  ["sgtz", 2, ["slt", 0, "r0", 1]],
   ["beqz", 2, ["beq", 0, "r0", 1]],
-  ["bnez", 2, ["bne",0, "r0", 1]],
+  ["bnez", 2, ["bne", 0, "r0", 1]],
   ["blez", 2, ["bge", "r0", 0, 1]],
   ["bgez", 2, ["bge", 0, "r0", 1]],
   ["bltz", 2, ["blt", 0, "r0", 1]],
   ["bgtz", 2, ["blt", "r0", 0, 1]],
   ["j", 1, ["jal", "r0", 0]],
   ["jr", 1, ["jalr", "r0", 0, "0"]],
-  ["ret", 0, ["jalr", "r0", "r1", "0"]],
+  ["ret", 0, ["jalr", "r0", "r1", "0"]]
 //  ["call", 1, ["auipc", "r6", 0, "jalr", "r1", "r6", 0]]
 ];
 
