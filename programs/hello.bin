@@ -1,0 +1,251 @@
+v2.0 raw
+#li
+# sp, 0x000ff000
+# <M> sp, 0x000ff000
+#lui
+# sp, 0x000ff000
+#addi
+# sp, sp, 0x000ff000
+#li
+# s0, 'HelloWorld
+# <M> s0, 'HelloWorld
+#lui
+# s0, 'HelloWorld
+#addi
+# s0, s0, 'HelloWorld
+#mv
+# a0, s0
+# <M> a0, s0
+#addi
+# a0, s0, 0
+#jal
+# ra, out_string
+#j
+# top
+# <M> top
+#jal
+# r0, top
+#sw
+# sp, ra, -4
+#addi
+# sp, sp, -4
+#mv
+# t1, a0
+# <M> t1, a0
+#addi
+# t1, a0, 0
+#lb
+# t2, t1, 0
+#beqz
+# t2, out_string_end
+# <M> t2, out_string_end
+#beq
+# t2, r0, out_string_end
+#mv
+# a0, t2
+# <M> a0, t2
+#addi
+# a0, t2, 0
+#jal
+# ra, out_char
+#addi
+# t1, t1, 1
+#j
+# out_string_charloop
+# <M> out_string_charloop
+#jal
+# r0, out_string_charloop
+#lw
+# ra, sp, 0
+#addi
+# sp, sp, 4
+#ret
+# 
+# <M> 
+#jalr
+# r0, r1, 0
+#li
+# t0, 0xff000000
+# <M> t0, 0xff000000
+#lui
+# t0, 0xff000000
+#addi
+# t0, t0, 0xff000000
+#sb
+# t0, a0, 0
+#ret
+# 
+# <M> 
+#jalr
+# r0, r1, 0
+#.string
+# "Hello World!"
+#.stringu
+# "Hello World!"
+#.byte
+# 72
+#.byte
+# 101
+#.byte
+# 108
+#.byte
+# 108
+#.byte
+# 111
+#.byte
+# 32
+#.byte
+# 87
+#.byte
+# 111
+#.byte
+# 114
+#.byte
+# 108
+#.byte
+# 100
+#.byte
+# 33
+#.byte
+# 0
+#2,1044480
+#2,2,1044480
+#8,92
+#8,8,92
+#10,8,0
+#1,8
+#0,-8
+#2,1,-4
+#2,2,-4
+#6,10,0
+#7,6,0
+#7,0,20
+#10,7,0
+#1,24
+#6,6,1
+#0,-20
+#1,2,0
+#2,2,4
+#0,1,0
+#5,4278190080
+#5,5,4278190080
+#5,10,0
+#0,1,0
+#72
+#101
+#108
+#108
+#111
+#32
+#87
+#111
+#114
+#108
+#100
+#33
+#0
+37
+f1
+f
+00
+13
+1
+1
+00
+37
+4
+00
+00
+13
+4
+c4
+5
+13
+5
+4
+00
+ef
+00
+80
+00
+6f
+f0
+9f
+ff
+23
+2e
+11
+fe
+13
+1
+c1
+ff
+13
+3
+5
+00
+83
+3
+3
+00
+63
+8a
+3
+00
+13
+85
+3
+00
+ef
+00
+80
+1
+13
+3
+13
+00
+6f
+f0
+df
+fe
+83
+20
+1
+00
+13
+1
+41
+00
+67
+80
+00
+00
+b7
+2
+00
+ff
+93
+82
+2
+00
+23
+80
+a2
+00
+67
+80
+00
+00
+48
+65
+6c
+6c
+6f
+20
+57
+6f
+72
+6c
+64
+21
+00
